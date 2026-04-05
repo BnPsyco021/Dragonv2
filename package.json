@@ -4,7 +4,7 @@
   "description": "Sistema de automação e gerenciamento Dragon V2",
   "main": "bot.js",
   "scripts": {
-    "start": "node bot.js",
+    "start": "node index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [
