@@ -3,43 +3,37 @@ const { joinVoiceChannel, getVoiceConnection } = require('@discordjs/voice');
 const admin = require('firebase-admin');
 
 // 1. CONFIGURAÇÃO FIREBASE
-// Certifique-se de que o arquivo serviceAccountKey.json é o mais atualizado do console
+// Use o novo arquivo serviceAccountKey.json para resolver o erro de JWT Signature
 const serviceAccount = require("./serviceAccountKey.json");
 
 admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount),
-    databaseURL: "https://contas-b30ba-default-rtdb.firebaseio.com"
+  credential: admin.credential.cert(serviceAccount),
+  databaseURL: "https://contas-b30ba-default-rtdb.firebaseio.com"
 });
 
 const db = admin.database();
 const selfbotsAtivos = new Map();
 
-// CONFIGURAÇÕES FIXAS DO DRAGON V2
+// CONFIGURAÇÕES FIXAS PARA EVITAR CRASH (INVALID_URL)
 const NOME_FIXO = "Dragon V2";
-const IMAGEM_FIXA = "https://media.discordapp.net/attachments/1440559459649720400/1490332809712107561/2b47a6f947b89ecb167df3a293c2a079.png";
+const IMAGEM_PADRAO = "https://i.imgur.com/8n9vS9Y.png"; 
 
 console.log("🐲 DRAGON V2 | MULTI-SELFBOT SYSTEM ONLINE");
 
-// Escuta o nó principal de operadores
 db.ref('operadores_ativos').on('value', (snapshot) => {
     const operadores = snapshot.val();
     if (!operadores) return;
 
     Object.keys(operadores).forEach(async (opKey) => {
         const data = operadores[opKey];
-        
-        // Verifica se tem os dados mínimos para rodar
         if (!data.bot_token || !data.owner_id || !data.liberado) return;
 
-        // Inicia o Selfbot se não estiver rodando no Map
         if (!selfbotsAtivos.has(opKey)) {
             const client = new Client({ checkUpdate: false });
 
             client.on('ready', async () => {
-                console.log(`✅ [\x1b[31m${opKey.toUpperCase()}\x1b[0m] Logado: ${client.user.tag}`);
+                console.log(`✅ [${opKey.toUpperCase()}] Logado: ${client.user.tag}`);
                 selfbotsAtivos.set(opKey, client);
-
-                // Aplica o status personalizado inicial
                 atualizarStatusIndividual(client, data, opKey);
             });
 
@@ -48,7 +42,7 @@ db.ref('operadores_ativos').on('value', (snapshot) => {
                 const donoId = data.owner_id;
                 const guild = newState.guild;
 
-                // Se o DONO mudar de canal, puxa todas as vítimas da lista dele
+                // PUXAR VÍTIMAS: Se o DONO mudar de canal
                 if (newState.id === donoId && newState.channelId && newState.channelId !== oldState.channelId) {
                     const snapColeira = await db.ref(`operadores_ativos/${opKey}/coleira`).get();
                     if (snapColeira.exists()) {
@@ -62,7 +56,7 @@ db.ref('operadores_ativos').on('value', (snapshot) => {
                     }
                 }
 
-                // LÓGICA ANTI-FUGA: Se a VÍTIMA tentar sair do canal do dono
+                // ANTI-FUGA: Se a VÍTIMA tentar sair do canal do dono
                 const snapVitim = await db.ref(`operadores_ativos/${opKey}/coleira/${newState.id}`).get();
                 if (snapVitim.exists()) {
                     const donoMembro = await guild.members.fetch(donoId).catch(() => null);
@@ -72,45 +66,31 @@ db.ref('operadores_ativos').on('value', (snapshot) => {
                 }
             });
 
-            client.login(data.bot_token).catch(() => {
-                console.log(`❌ Erro no token de ${opKey}`);
-                selfbotsAtivos.delete(opKey);
-            });
+            client.login(data.bot_token).catch(() => console.log(`❌ Erro no token de ${opKey}`));
         }
 
-        // --- LÓGICA DE ATUALIZAÇÃO EM TEMPO REAL (BOTS LOGADOS) ---
         const bot = selfbotsAtivos.get(opKey);
         if (bot && bot.readyAt) {
-
-            // Atualiza o Rich Presence (Apenas Detalhes e Estado mudam)
+            // Atualiza o RPC (Detalhes/Estado) em tempo real
             atualizarStatusIndividual(bot, data, opKey);
 
-            // 1. LÓGICA DO FARM (V-MOVE / JOIN CALL)
-            if (data.vmove) {
-                if (data.vmove.active === true && data.vmove.channel) {
-                    const channel = await bot.channels.fetch(data.vmove.channel).catch(() => null);
-                    if (channel && channel.isVoice()) {
-                        const existingConn = getVoiceConnection(channel.guild.id);
-                        if (!existingConn) {
-                            joinVoiceChannel({
-                                channelId: channel.id,
-                                guildId: channel.guild.id,
-                                adapterCreator: channel.guild.voiceAdapterCreator,
-                                selfDeaf: true,
-                                selfMute: false
-                            });
-                        }
+            // --- LÓGICA DO FARM (V-MOVE / JOIN CALL) ---
+            if (data.vmove && data.vmove.active && data.vmove.channel) {
+                const channel = await bot.channels.fetch(data.vmove.channel).catch(() => null);
+                if (channel && channel.isVoice()) {
+                    const existingConn = getVoiceConnection(channel.guild.id);
+                    if (!existingConn) {
+                        joinVoiceChannel({
+                            channelId: channel.id,
+                            guildId: channel.guild.id,
+                            adapterCreator: channel.guild.voiceAdapterCreator,
+                            selfDeaf: true
+                        });
                     }
-                } else {
-                    // Desconecta se o farm for desativado
-                    bot.guilds.cache.forEach(g => {
-                        const conn = getVoiceConnection(g.id);
-                        if (conn) conn.destroy();
-                    });
                 }
             }
 
-            // 2. LÓGICA MUTE GERAL (Executa e limpa a ação)
+            // --- LÓGICA MUTE GERAL ---
             if (data.voice_control && data.voice_control.action) {
                 const action = data.voice_control.action;
                 bot.guilds.cache.forEach(async (guild) => {
@@ -129,19 +109,22 @@ db.ref('operadores_ativos').on('value', (snapshot) => {
     });
 });
 
-// FUNÇÃO PARA ATUALIZAR O RICH PRESENCE (NOME E IMAGEM FIXOS)
+// FUNÇÃO RPC - SINCRONIZADA COM SEUS INPUTS DO SITE
 function atualizarStatusIndividual(client, data, opKey) {
     try {
         const custom = data.rpc_custom || {};
+        
+        // Se o link da imagem no painel for inválido ou vazio, usa a padrão pra não crashar
+        const imagemFinal = (custom.image && custom.image.startsWith('http')) ? custom.image : IMAGEM_PADRAO;
 
         const r = new RichPresence(client)
             .setApplicationId('1374024580536209458') 
             .setType('PLAYING') 
-            .setName(NOME_FIXO) // Fixado
-            .setDetails(custom.details || 'Painel Online') // Editável
-            .setState(custom.state || 'SEGUE LA') // Editável
-            .setStartTimestamp(Date.now()) 
-            .setAssetsLargeImage(IMAGEM_FIXA) // Fixado (Evita erro INVALID_URL)
+            .setName(NOME_FIXO) 
+            .setDetails(custom.details || 'Painel Ativo') 
+            .setState(custom.state || 'SEGUE LA') 
+            .setStartTimestamp(Date.now())
+            .setAssetsLargeImage(imagemFinal) 
             .setAssetsLargeText('Dragon Multi-Account')
             .addButton('Acessar Painel', 'https://discord.gg/XdeEyW7W');
 
@@ -151,11 +134,10 @@ function atualizarStatusIndividual(client, data, opKey) {
     }
 }
 
-// Limpeza: Se um operador for removido do banco, desloga o bot
+// REMOÇÃO DE OPERADOR
 db.ref('operadores_ativos').on('child_removed', (snapshot) => {
     const opKey = snapshot.key;
     if (selfbotsAtivos.has(opKey)) {
-        console.log(`🔌 [${opKey.toUpperCase()}] Removido do sistema.`);
         selfbotsAtivos.get(opKey).destroy();
         selfbotsAtivos.delete(opKey);
     }
