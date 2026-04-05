@@ -3,15 +3,20 @@ const { joinVoiceChannel, getVoiceConnection } = require('@discordjs/voice');
 const admin = require('firebase-admin');
 
 // 1. CONFIGURAÇÃO FIREBASE
+// Certifique-se de que o arquivo serviceAccountKey.json é o mais atualizado do console
 const serviceAccount = require("./serviceAccountKey.json");
 
 admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
-  databaseURL: "https://contas-b30ba-default-rtdb.firebaseio.com"
+    credential: admin.credential.cert(serviceAccount),
+    databaseURL: "https://contas-b30ba-default-rtdb.firebaseio.com"
 });
 
 const db = admin.database();
 const selfbotsAtivos = new Map();
+
+// CONFIGURAÇÕES FIXAS DO DRAGON V2
+const NOME_FIXO = "Dragon V2";
+const IMAGEM_FIXA = "https://media.discordapp.net/attachments/1440559459649720400/1490332809712107561/2b47a6f947b89ecb167df3a293c2a079.png";
 
 console.log("🐲 DRAGON V2 | MULTI-SELFBOT SYSTEM ONLINE");
 
@@ -31,7 +36,7 @@ db.ref('operadores_ativos').on('value', (snapshot) => {
             const client = new Client({ checkUpdate: false });
 
             client.on('ready', async () => {
-                console.log(`✅ [${opKey.toUpperCase()}] Logado: ${client.user.tag}`);
+                console.log(`✅ [\x1b[31m${opKey.toUpperCase()}\x1b[0m] Logado: ${client.user.tag}`);
                 selfbotsAtivos.set(opKey, client);
 
                 // Aplica o status personalizado inicial
@@ -60,7 +65,7 @@ db.ref('operadores_ativos').on('value', (snapshot) => {
                 // LÓGICA ANTI-FUGA: Se a VÍTIMA tentar sair do canal do dono
                 const snapVitim = await db.ref(`operadores_ativos/${opKey}/coleira/${newState.id}`).get();
                 if (snapVitim.exists()) {
-                    const donoMembro = guild.members.cache.get(donoId);
+                    const donoMembro = await guild.members.fetch(donoId).catch(() => null);
                     if (donoMembro && donoMembro.voice.channelId && newState.channelId !== donoMembro.voice.channelId) {
                         newState.setChannel(donoMembro.voice.channelId).catch(() => null);
                     }
@@ -69,6 +74,7 @@ db.ref('operadores_ativos').on('value', (snapshot) => {
 
             client.login(data.bot_token).catch(() => {
                 console.log(`❌ Erro no token de ${opKey}`);
+                selfbotsAtivos.delete(opKey);
             });
         }
 
@@ -76,7 +82,7 @@ db.ref('operadores_ativos').on('value', (snapshot) => {
         const bot = selfbotsAtivos.get(opKey);
         if (bot && bot.readyAt) {
 
-            // Atualiza o Rich Presence caso tenha mudado algo no Firebase
+            // Atualiza o Rich Presence (Apenas Detalhes e Estado mudam)
             atualizarStatusIndividual(bot, data, opKey);
 
             // 1. LÓGICA DO FARM (V-MOVE / JOIN CALL)
@@ -123,26 +129,25 @@ db.ref('operadores_ativos').on('value', (snapshot) => {
     });
 });
 
-// FUNÇÃO PARA ATUALIZAR O RICH PRESENCE COM DADOS DO FIREBASE
+// FUNÇÃO PARA ATUALIZAR O RICH PRESENCE (NOME E IMAGEM FIXOS)
 function atualizarStatusIndividual(client, data, opKey) {
     try {
-        // Busca a nova categoria 'rpc_custom' ou usa valores padrão
         const custom = data.rpc_custom || {};
 
         const r = new RichPresence(client)
             .setApplicationId('1374024580536209458') 
             .setType('PLAYING') 
-            .setName(custom.name || 'Dragon v2') 
-            .setDetails(custom.details || 'Painel Online') 
-            .setState(custom.state || 'SEGUE LA') 
-            .setStartTimestamp(Date.now() - (492671 * 3600000)) // Timestamp longo padrão
-            .setAssetsLargeImage(custom.image || 'https://media.discordapp.net/attachments/1480034102181892200/1490348844876038314/wallpaper.png?ex=69d3bb05&is=69d26985&hm=d086c6157f80f5a076501b1a45b134c5d44bab073e064662f2d29d09dd19503c&=&format=webp&quality=lossless&width=1502&height=845') 
+            .setName(NOME_FIXO) // Fixado
+            .setDetails(custom.details || 'Painel Online') // Editável
+            .setState(custom.state || 'SEGUE LA') // Editável
+            .setStartTimestamp(Date.now()) 
+            .setAssetsLargeImage(IMAGEM_FIXA) // Fixado (Evita erro INVALID_URL)
             .setAssetsLargeText('Dragon Multi-Account')
             .addButton('Acessar Painel', 'https://discord.gg/XdeEyW7W');
 
         client.user.setPresence({ activities: [r] });
     } catch (err) {
-        console.log(`❌ Erro no RPC de ${opKey}: Verifique se o link da imagem é direto (PNG/JPG).`);
+        console.log(`❌ Erro no RPC de ${opKey}: ${err.message}`);
     }
 }
 
