@@ -1,9 +1,28 @@
 {
+  "name": "dragon-v2-selfbot",
+  "version": "2.0.0",
+  "description": "Sistema de automação e gerenciamento Dragon V2",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node bot.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "discord",
+    "selfbot",
+    "dragon-v2",
+    "automation"
+  ],
+  "author": "Benny",
+  "license": "ISC",
   "dependencies": {
     "@discordjs/voice": "^0.19.2",
     "discord.js-selfbot-v13": "^3.7.1",
     "firebase-admin": "^13.7.0",
     "libsodium-wrappers": "^0.8.2",
     "opusscript": "^0.0.8"
+  },
+  "engines": {
+    "node": ">=16.0.0"
   }
 }
